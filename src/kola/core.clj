@@ -1,12 +1,14 @@
 (ns kola.core
-  (:require [plumbing.core   :refer [fnk defnk]]
-            [plumbing.graph  :as    graph]
-            [seesaw.core     :refer [frame canvas show! move! config!
-                                     repaint! user-data select]]
-            [seesaw.graphics :refer [draw style string-shape]]
-            [seesaw.color    :refer [color]]
-            [seesaw.font     :refer [font]]
-            [seesaw.event    :refer [listen]]))
+  (:require [plumbing.core    :refer [fnk]]
+            [plumbing.graph   :as    graph]
+            [seesaw.core      :refer [frame canvas show! move! config!
+                                      repaint! user-data select]]
+            [seesaw.graphics  :refer [draw style string-shape]]
+            [seesaw.color     :refer [color]]
+            [seesaw.font      :refer [font]]
+            [seesaw.event     :refer [listen]]
+            [seesaw.keystroke :refer [keystroke]])
+  (:import [javax.swing.KeyStroke]))
 
 (def buffer-counter (atom 0))
 (def window-counter (atom 0))
@@ -88,8 +90,19 @@
         (assoc-b    (:b new-linked))
         (assoc-mode (:mode new-linked)))))
 
-(defnk move-cursor [cur]
-  {:cur (assoc cur :x (+ 1 (:x cur)))})
+(defn move-cursor [x y]
+  (fnk [cur]
+    {:cur (-> cur
+              (update-in [:x] #(+ % x))
+              (update-in [:y] #(+ % y)))}))
+
+(defn select-fn [e]
+  (condp = (KeyStroke/getKeyStrokeForEvent e)
+    (keystroke "RIGHT") (move-cursor 1 0)
+    (keystroke "LEFT")  (move-cursor -1 0)
+    (keystroke "UP")    (move-cursor 0 -1)
+    (keystroke "DOWN")  (move-cursor 0 1)
+    identity))
 
 (def text-style (style :foreground (color 0 0 0)
                        :font       (font :name :monospaced
@@ -98,13 +111,13 @@
 (defn paint [c g]
   (let [state (user-data c)
         cur   (:cur state)]
-    (println state)
     (draw g (string-shape 0 10 (str "Cursor: " (:x cur) "," (:y cur))) text-style)))
 
 (defn key-pressed [e]
-  (let [canvas (select e [:#canvas])
-        state  (user-data canvas)]
-    (config! canvas :user-data (update-state state move-cursor))
+  (let [canvas    (select e [:#canvas])
+        state     (user-data canvas)
+        update-fn (select-fn e)]
+    (config! canvas :user-data (update-state state update-fn))
     (repaint! e)))
 
 (defn start []
@@ -120,5 +133,5 @@
       (doto (.setAlwaysOnTop true))
       show!
       (move! :to [1420, 700])
-      (listen :key-pressed key-pressed)))
+      (listen :key-pressed #'key-pressed)))
 
