@@ -3,12 +3,13 @@
             [plumbing.graph   :as    graph]
             [seesaw.core      :refer [frame canvas show! move! config!
                                       repaint! user-data select]]
-            [seesaw.graphics  :refer [draw style string-shape]]
+            [seesaw.graphics  :refer [draw style string-shape rect
+                                      update-style]]
             [seesaw.color     :refer [color]]
             [seesaw.font      :refer [font]]
             [seesaw.event     :refer [listen]]
             [seesaw.keystroke :refer [keystroke]])
-  (:import [javax.swing.KeyStroke]))
+  (:import [javax.swing KeyStroke]))
 
 (defn update-values [m f & args]
   (reduce
@@ -97,11 +98,20 @@
         (assoc-b    (:b new-linked))
         (assoc-mode (:mode new-linked)))))
 
-(defn move-cursor [x y]
-  (fnk [cur]
-    {:cur (-> cur
-              (update-in [:x] #(+ % x))
-              (update-in [:y] #(+ % y)))}))
+(defn move-cursor [inc-x inc-y]
+  (fnk [cur w]
+    (let [[width height] (:size w)
+          max-x (- (+ (:x w) width) 1)
+          min-x (:x w)
+          max-y (- (+ (:y w) height) 1)
+          min-y (:y w)
+          x (+ (:x cur) inc-x)
+          y (+ (:y cur) inc-y)
+          nx (max (min x max-x) min-x)
+          ny (max (min y max-y) min-y)]
+      {:cur (-> cur
+                (assoc :x nx)
+                (assoc :y ny))})))
 
 (defn split-horiz-size [size]
   (let [[width height] size
@@ -141,6 +151,11 @@
      :ws  (assoc ws (:id nw) nw)
      :w   (assoc w :size left-size)}))
 
+(defn print-iden [x]
+  (println "here")
+  (println x)
+  {})
+
 (defn select-fn [e]
   (condp #(= (keystroke %1) %2) (KeyStroke/getKeyStrokeForEvent e)
     "RIGHT" (move-cursor 1 0)
@@ -149,7 +164,7 @@
     "DOWN"  (move-cursor 0 1)
     "H"     split-horiz
     "V"     split-vert
-    identity))
+    (fn [_] {})))
 
 (defn pad-str [s len]
   (format (str "%-" len "s") s))
@@ -170,6 +185,12 @@
         {:keys [size x y bx by]} w]
     (vec (for [y (range (last size))]
       (line-at b bx (+ y by) (first size))))))
+
+(defn char-at [bs w cur]
+  (let [{:keys [x y]} cur
+        content (visible w bs)
+        line (get content y)]
+    (str (get line x))))
 
 (defn has-line-at? [w y]
   (let [start (:y w)
@@ -199,11 +220,13 @@
       (reduce
         (fn [acc s]
           (let [{:keys [x line]} s
-                fill (gen-str "x" (- (- width (count acc))
-                                     (+ x (count line))))]
+                len (- (- width (count acc))
+                       (+ x (count line)))
+                fill-char (if (> len 1) "-" "|")
+                fill (gen-str fill-char len)]
             (str line fill acc)))
         "")
-      (pad-left width "x"))))
+      (pad-left width "-"))))
 
 (defnk generate-display [f bs ws w]
   (let [[width height] (:size f)
@@ -213,18 +236,32 @@
                 combined (combine-strs strs width)]]
         (combine-strs strs width))))
 
-(def text-style (style :foreground (color 0 0 0)
+(defn gx [x] (* 6 x))
+(defn gy [y] (* 10 y))
+
+(def text-style (style :foreground :black
                        :font       (font :name :monospaced
                                          :size 10)))
 
+(def cursor-style (style :foreground :white
+                         :background :black
+                         :font       (font :name :monospaced
+                                           :size 10)))
+
 (defn paint-line [g y line]
-  (draw g (string-shape 0 (* y 10) line) text-style))
+  (draw g (string-shape 0 (gy y) line) text-style))
+
+(defn paint-cursor [g x y c]
+  (draw g (rect (gx x) (gy y) (gx 1) (gy 1)) (update-style cursor-style :foreground :black))
+  (draw g (string-shape (gx x) (gy y) c) cursor-style))
 
 (defn paint [c g]
   (let [state   (user-data c)
         cur     (:cur state)
-        display (generate-display (into state (links state)))]
-    (doall (map-indexed #(paint-line g %1 %2) display))))
+        linked  (into state (links state))
+        display (generate-display linked)]
+    (doall (map-indexed #(paint-line g %1 %2) display))
+    (paint-cursor g (:x cur) (:y cur) (char-at (:bs linked) (:w linked) cur))))
 
 (defn key-pressed [e]
   (let [canvas    (select e [:#canvas])
@@ -236,8 +273,8 @@
 (defn start []
   (-> (frame
         :title     "Kola"
-        :width     500
-        :height    500
+        :width     (gx 82)
+        :height    (gy 48)
         :on-close  :dispose
         :content   (canvas :id         :canvas
                            :paint      #(#'paint %1 %2)
