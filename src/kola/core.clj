@@ -1,5 +1,5 @@
 (ns kola.core
-  (:require [plumbing.core    :refer [fnk]]
+  (:require [plumbing.core    :refer [fnk defnk]]
             [plumbing.graph   :as    graph]
             [seesaw.core      :refer [frame canvas show! move! config!
                                       repaint! user-data select]]
@@ -10,6 +10,11 @@
             [seesaw.keystroke :refer [keystroke]])
   (:import [javax.swing.KeyStroke]))
 
+(defn update-values [m f & args]
+  (reduce
+    (fn [r [k v]] (assoc r k (apply f v args)))
+    {} m))
+
 (def buffer-counter (atom 0))
 (def window-counter (atom 0))
 (def frame-counter (atom 0))
@@ -19,10 +24,12 @@
    :content []})
 
 (defn create-window [size x y bid]
-  {:id (swap! window-counter inc)
-   :x x :y y
+  {:id   (swap! window-counter inc)
+   :bid  bid
+   :x x  :y y
    :bx 0 :by 0
-   :bid bid :mode "default"})
+   :size size
+   :mode "default"})
 
 (defn create-frame [size bid]
   (let [w (create-window size 0 0 bid)]
@@ -96,22 +103,124 @@
               (update-in [:x] #(+ % x))
               (update-in [:y] #(+ % y)))}))
 
+(defn split-horiz-size [size]
+  (let [[width height] size
+        half (/ height 2)]
+    (if (even? height)
+      [[width half]       [width (- half 1)]]
+      [[width (int half)] [width (int half)]])))
+
+(defn split-vert-size [size]
+  (let [[width height] size
+        half (/ width 2)]
+    (if (even? width)
+      [[half height]       [(- half 1) height]]
+      [[(int half) height] [(int half) height]])))
+
+(defnk split-horiz [bs ws w]
+  (let [[top-size bottom-size] (split-horiz-size (:size w))
+        bottom-x (:x w)
+        bottom-y (+ (:y w) (last top-size) 1)
+        nb (create-buffer)
+        nw (create-window bottom-size
+                          bottom-x bottom-y
+                          (:id nb))]
+    {:bs  (assoc bs (:id nb) nb)
+     :ws  (assoc ws (:id nw) nw)
+     :w   (assoc w :size top-size)}))
+
+(defnk split-vert [bs ws w]
+  (let [[left-size right-size] (split-vert-size (:size w))
+        right-x (+ (:x w) (first left-size) 1)
+        right-y (:y w)
+        nb (create-buffer)
+        nw (create-window right-size
+                          right-x right-y
+                          (:id nb))]
+    {:bs  (assoc bs (:id nb) nb)
+     :ws  (assoc ws (:id nw) nw)
+     :w   (assoc w :size left-size)}))
+
 (defn select-fn [e]
-  (condp = (KeyStroke/getKeyStrokeForEvent e)
-    (keystroke "RIGHT") (move-cursor 1 0)
-    (keystroke "LEFT")  (move-cursor -1 0)
-    (keystroke "UP")    (move-cursor 0 -1)
-    (keystroke "DOWN")  (move-cursor 0 1)
+  (condp #(= (keystroke %1) %2) (KeyStroke/getKeyStrokeForEvent e)
+    "RIGHT" (move-cursor 1 0)
+    "LEFT"  (move-cursor -1 0)
+    "UP"    (move-cursor 0 -1)
+    "DOWN"  (move-cursor 0 1)
+    "H"     split-horiz
+    "V"     split-vert
     identity))
+
+(defn pad-str [s len]
+  (format (str "%-" len "s") s))
+
+(defn gen-str [c len]
+  (apply str (repeat len c)))
+
+(defn line-at [b x y len]
+  (let [content (:content b)
+        line (get content y)]
+    (if (or (nil? line)
+            (>= x (count line)))
+      (gen-str " " len)
+      (pad-str (subs line x) len))))
+
+(defn visible [w bs]
+  (let [b (get bs (:bid w))
+        {:keys [size x y bx by]} w]
+    (vec (for [y (range (last size))]
+      (line-at b bx (+ y by) (first size))))))
+
+(defn has-line-at? [w y]
+  (let [start (:y w)
+        height (get-in w [:size 1])]
+    (and (>= y start)
+         (< y (+ start height)))))
+
+(defn content-line [ws-content wid w y]
+  (let [content (get ws-content wid)]
+    (get content (- y (:y w)))))
+
+(defn visible-strs [ws ws-content y]
+  (->> ws
+       (filter (fn [[wid w]] (has-line-at? w y)))
+       (map (fn [[wid w]]
+              {:x    (:x w)
+               :line (content-line ws-content wid w y)}))))
+
+(defn combine-strs [strs width]
+  (if (empty? strs)
+    (gen-str "x" width)
+    (let [sorted (sort-by #(* -1 (:x %)) strs)]
+      (reduce
+        (fn [acc s]
+          (let [{:keys [x line]} s
+                fill (gen-str "x" (- (- width (count acc))
+                                     (+ x (count line))))]
+            (str line fill acc)))
+        ""
+        sorted))))
+
+(defnk generate-display [f bs ws w]
+  (let [[width height] (:size f)
+        ws-content (update-values ws visible bs)]
+    (for [y (range height)
+          :let [strs (visible-strs ws ws-content y)]]
+      (combine-strs strs width))))
 
 (def text-style (style :foreground (color 0 0 0)
                        :font       (font :name :monospaced
                                          :size 10)))
 
+(defn paint-line [g y line]
+  (draw g (string-shape 0 (* y 10) line) text-style))
+
 (defn paint [c g]
-  (let [state (user-data c)
-        cur   (:cur state)]
-    (draw g (string-shape 0 10 (str "Cursor: " (:x cur) "," (:y cur))) text-style)))
+  (let [state   (user-data c)
+        cur     (:cur state)
+        display (generate-display (into state (links state)))]
+    (pprint state)
+    (doall (map-indexed #(paint-line g %1 %2) display))))
 
 (defn key-pressed [e]
   (let [canvas    (select e [:#canvas])
