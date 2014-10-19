@@ -188,25 +188,30 @@
               {:x    (:x w)
                :line (content-line ws-content wid w y)}))))
 
+(defn pad-left [width c s]
+  (let [len (- width (count s))
+        fill (gen-str c len)]
+    (str fill s)))
+
 (defn combine-strs [strs width]
-  (if (empty? strs)
-    (gen-str "x" width)
-    (let [sorted (sort-by #(* -1 (:x %)) strs)]
+  (let [sorted (sort-by #(* -1 (:x %)) strs)]
+    (->> sorted
       (reduce
         (fn [acc s]
           (let [{:keys [x line]} s
                 fill (gen-str "x" (- (- width (count acc))
                                      (+ x (count line))))]
             (str line fill acc)))
-        ""
-        sorted))))
+        "")
+      (pad-left width "x"))))
 
 (defnk generate-display [f bs ws w]
   (let [[width height] (:size f)
         ws-content (update-values ws visible bs)]
     (for [y (range height)
-          :let [strs (visible-strs ws ws-content y)]]
-      (combine-strs strs width))))
+          :let [strs (visible-strs ws ws-content y)
+                combined (combine-strs strs width)]]
+        (combine-strs strs width))))
 
 (def text-style (style :foreground (color 0 0 0)
                        :font       (font :name :monospaced
@@ -219,7 +224,6 @@
   (let [state   (user-data c)
         cur     (:cur state)
         display (generate-display (into state (links state)))]
-    (pprint state)
     (doall (map-indexed #(paint-line g %1 %2) display))))
 
 (defn key-pressed [e]
