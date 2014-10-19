@@ -98,20 +98,51 @@
         (assoc-b    (:b new-linked))
         (assoc-mode (:mode new-linked)))))
 
+(defn in-frame? [f x y]
+  (let [[width height] (:size f)]
+    (and (>= x 0)
+         (< x width)
+         (>= y 0)
+         (< y height))))
+
+(defn in-window? [w x y]
+  (let [[width height] (:size w)]
+    (and (>= x (:x w))
+         (< x (+ (:x w) width))
+         (>= y (:y w))
+         (< y (+ (:y w) height)))))
+
 (defn move-cursor [inc-x inc-y]
   (fnk [cur w]
-    (let [[width height] (:size w)
-          max-x (- (+ (:x w) width) 1)
-          min-x (:x w)
-          max-y (- (+ (:y w) height) 1)
-          min-y (:y w)
-          x (+ (:x cur) inc-x)
-          y (+ (:y cur) inc-y)
-          nx (max (min x max-x) min-x)
-          ny (max (min y max-y) min-y)]
-      {:cur (-> cur
-                (assoc :x nx)
-                (assoc :y ny))})))
+    (let [nx (+ (:x cur) inc-x)
+          ny (+ (:y cur) inc-y)]
+      (if (in-window? w nx ny)
+        {:cur (-> cur
+                  (assoc :x nx)
+                  (assoc :y ny))}
+        {}))))
+
+(defn window-at [ws x y]
+  (loop [[[wid w] & ws] (seq ws)]
+    (cond
+      (in-window? w x y) w
+      (nil? ws)          nil
+      :else              (recur ws))))
+
+(defn move-window [inc-x inc-y]
+  (fnk [f cur w ws]
+    (loop [x (:x cur)
+           y (:y cur)]
+      (let [cur-w (window-at ws x y)
+            nx (+ x inc-x)
+            ny (+ y inc-y)]
+        (if (nil? cur-w)
+          (if (in-frame? f x y) (recur nx ny) {})
+          (if (= (:id w) (:id cur-w)) (recur nx ny)
+            {:cur (-> cur
+                      (assoc :wid (:id cur-w))
+                      (assoc :x (:x cur-w))
+                      (assoc :y (:y cur-w)))}))))))
 
 (defn split-horiz-size [size]
   (let [[width height] size
@@ -151,19 +182,18 @@
      :ws  (assoc ws (:id nw) nw)
      :w   (assoc w :size left-size)}))
 
-(defn print-iden [x]
-  (println "here")
-  (println x)
-  {})
-
 (defn select-fn [e]
   (condp #(= (keystroke %1) %2) (KeyStroke/getKeyStrokeForEvent e)
-    "RIGHT" (move-cursor 1 0)
-    "LEFT"  (move-cursor -1 0)
-    "UP"    (move-cursor 0 -1)
-    "DOWN"  (move-cursor 0 1)
-    "H"     split-horiz
-    "V"     split-vert
+    "RIGHT"       (move-cursor 1 0)
+    "LEFT"        (move-cursor -1 0)
+    "DOWN"        (move-cursor 0 1)
+    "UP"          (move-cursor 0 -1)
+    "shift RIGHT" (move-window 1 0)
+    "shift LEFT"  (move-window -1 0)
+    "shift DOWN"  (move-window 0 1)
+    "shift UP"    (move-window 0 -1)
+    "H"           split-horiz
+    "V"           split-vert
     (fn [_] {})))
 
 (defn pad-str [s len]
