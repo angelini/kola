@@ -279,16 +279,16 @@
                                            :size 10)))
 
 (defn paint-line [g y line]
-  (draw g (string-shape 0 (gy y) line) text-style))
+  (draw g (string-shape 0 (gy (+ y 1)) line) text-style))
 
 (defn paint-cursor [g x y c]
   (draw g (rect (gx x) (gy y) (gx 1) (gy 1)) (update-style cursor-style :foreground :black))
-  (draw g (string-shape (gx x) (gy y) c) cursor-style))
+  (draw g (string-shape (gx x) (gy (+ y 1)) c) cursor-style))
 
 (defn paint [c g]
   (let [state   (user-data c)
         cur     (:cur state)
-        linked  (into state (links state))
+        linked  (link state)
         display (generate-display linked)]
     (doall (map-indexed #(paint-line g %1 %2) display))
     (paint-cursor g (:x cur) (:y cur) (char-at (:bs linked) (:w linked) cur))))
@@ -304,7 +304,7 @@
   (-> (frame
         :title     "Kola"
         :width     (gx 82)
-        :height    (gy 48)
+        :height    (+ 22 (gy 48))
         :on-close  :dispose
         :content   (canvas :id         :canvas
                            :paint      #(#'paint %1 %2)
@@ -312,6 +312,6 @@
                            :background "#BBBBDD"))
       (doto (.setAlwaysOnTop true))
       show!
-      (move! :to [1420, 700])
+      (move! :to [1420, 690])
       (listen :key-pressed #'key-pressed)))
 
