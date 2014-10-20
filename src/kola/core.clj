@@ -59,6 +59,9 @@
 
 (def links (graph/compile links*))
 
+(defn link [state]
+  (into state (links state)))
+
 (defn assoc-f [state f]
   (if (nil? f)
     state
@@ -88,7 +91,7 @@
       (assoc-in state [:fs fid :ws wid :mode] mode))))
 
 (defn update-state [state update]
-  (let [linked     (into state (links state))
+  (let [linked     (link state)
         new-linked (update linked)]
     (-> state
         (merge (select-keys new-linked [:bs :fs :cur]))
@@ -182,8 +185,15 @@
      :ws  (assoc ws (:id nw) nw)
      :w   (assoc w :size left-size)}))
 
-(defn select-fn [e]
-  (condp #(= (keystroke %1) %2) (KeyStroke/getKeyStrokeForEvent e)
+(defn exec-cmd [])
+
+(defn cmd [k]
+  (condp #(= (keystroke %1) %2) k
+    "ENTER" (exec-cmd)
+    nil))
+
+(defn movement [k]
+  (condp #(= (keystroke %1) %2) k
     "RIGHT"       (move-cursor 1 0)
     "LEFT"        (move-cursor -1 0)
     "DOWN"        (move-cursor 0 1)
@@ -194,7 +204,19 @@
     "shift UP"    (move-window 0 -1)
     "H"           split-horiz
     "V"           split-vert
-    (fn [_] {})))
+    nil))
+
+(def modes
+  {"default" {:stack [movement]}
+   "cmd"     {:stack [cmd movement]}})
+
+(defn select-fn [mode k]
+  (let [stack (:stack (get modes mode))]
+    (loop [[f & r] stack]
+      (let [update-fn (f k)]
+        (if (nil? update-fn)
+          (if (nil? r) (fn [_] {}) (recur r))
+          update-fn)))))
 
 (defn pad-str [s len]
   (format (str "%-" len "s") s))
@@ -296,7 +318,8 @@
 (defn key-pressed [e]
   (let [canvas    (select e [:#canvas])
         state     (user-data canvas)
-        update-fn (select-fn e)]
+        mode      (:mode (link state))
+        update-fn (select-fn mode (KeyStroke/getKeyStrokeForEvent e))]
     (config! canvas :user-data (update-state state update-fn))
     (repaint! e)))
 
