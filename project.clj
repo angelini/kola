@@ -5,7 +5,5 @@
             :url "http://www.eclipse.org/legal/epl-v10.html"}
   :dependencies [[org.clojure/clojure "1.6.0"]
                  [prismatic/plumbing "0.3.4"]
-                 [seesaw "1.4.4"]]
-  :main ^:skip-aot kola.core
-  :target-path "target/%s"
-  :profiles {:uberjar {:aot :all}})
+                 [seesaw "1.4.4"]])
+
